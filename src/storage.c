@@ -31,7 +31,7 @@
 LOG_MODULE_REGISTER(storage);
 
 struct usbd_contex* usb_device;
-USBD_DEFINE_MSC_LUN(SD, "Zephyr", DISK_NAME, "0.00");
+USBD_DEFINE_MSC_LUN(SD, "Zephyr", DISK_NAME, "0.00", "0.00");
 
 struct storage {
     size_t open_objects;
