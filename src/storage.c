@@ -326,7 +326,10 @@ static void management_thread_runnable(void* p0, void* p1, void* p2) {
     }
 }
 
-storage_t storage_init(observer_t observer) {
+storage_t storage_init(observer_t observer)
+{
+	int ret;
+
     LOG_INF("Initializing storage...");
     storage_t storage = k_malloc(sizeof(struct storage));
     if (storage == NULL) {
@@ -366,6 +369,16 @@ storage_t storage_init(observer_t observer) {
         LOG_ERR("Cannot open a handle to the SDMMC device. Error: %d", errnum);
         goto exit_fault;
     }
+
+#if defined(CONFIG_USB_DEVICE_STACK_NEXT)
+	ret = enable_usb_device_next();
+#else
+	ret = usb_enable(NULL);
+#endif
+	if (ret != 0) {
+		LOG_ERR("Failed to enable USB");
+		return 0;
+	}
 
     setup(storage);
 

@@ -126,7 +126,7 @@ int main(void) {
 
     // Initialize the logging module which is invaluable when debugging.
     LOG_INIT();
-    LOG_INF("Biologger 13");
+    LOG_INF("Biologger 15");
     LOG_INF("Initializing modules...");
 
     // Initialize the observer which will oversee all the operations and blink
