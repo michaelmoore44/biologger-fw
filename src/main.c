@@ -26,6 +26,10 @@
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/drivers/sensor.h>
+#include <zephyr/drivers/clock_control.h>
+#include <zephyr/drivers/clock_control/stm32_clock_control.h>
+#include "stm32_ll_rcc.h"
+#include <zephyr/drivers/clock_control.h>
 
 #define SAMPLING_PERIOD_MS 100
 
@@ -126,11 +130,190 @@ int main(void) {
 
     // Initialize the logging module which is invaluable when debugging.
     LOG_INIT();
+    LOG_INF(" ");
+    LOG_INF(" ");
+    LOG_INF("Biologger 13k");
+    LOG_INF(" ");
+    LOG_INF(" ");
     LOG_INF("Initializing modules...");
 
     // Initialize the observer which will oversee all the operations and blink
     // the LED.
     observer_t observer = OBSERVER_INIT(main_observer);
+
+
+    #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(sdmmc1))
+    #warning "Missing sdmmc1"
+    #endif
+
+    #if DT_HAS_COMPAT_STATUS_OKAY(st_stm32_sdmmc)
+    #define DT_DRV_COMPAT st_stm32_sdmmc1
+    #endif
+
+    #if !DT_HAS_COMPAT_STATUS_OKAY(st_stm32_clock_mux)
+    #warning "Missing clock 48MHz"
+    #endif
+
+    #ifndef STM32_SRC_CK48
+    #error "Missing clock CK48"
+    #endif
+
+    #ifndef STM32_CK48_ENABLED
+    #warning "Missing clock CK48_ENABLED"
+    #endif
+
+
+	static const struct stm32_pclken pclken[] = STM32_DT_CLOCKS(DT_NODELABEL(sdmmc1));
+
+	uint32_t dev_dt_clk_freq, dev_actual_clk_freq, print_val;
+	uint32_t dev_actual_clk_src;
+	int r;
+
+
+	/* Test clock_on(gating clock) */
+	r = clock_control_on(DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE),
+				(clock_control_subsys_t) &pclken[0]);
+	if(!(r == 0))
+        LOG_ERR("Could not enable SDMMC gating clock");
+
+	if(!(__HAL_RCC_SDIO_IS_CLK_ENABLED()))
+        LOG_ERR("SDMMC gating clock should be on");
+
+	LOG_INF("SDMMC gating clock on");
+
+	if(!(DT_NUM_CLOCKS(DT_NODELABEL(sdmmc1)) > 1))
+        LOG_ERR("No domain clock defined in dts");
+
+	if (pclken[1].bus == STM32_SRC_CK48) {
+		/* CLK 48 is enabled through the clock-mux */
+		if(!(DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(clk48))))
+            LOG_ERR("No clock 48MHz");
+		r = 0;
+	} else if (pclken[1].bus == STM32_SRC_SYSCLK) {
+		/* Test clock_on(domain_clk) STM32_SRC_SYSCLK */
+		r = clock_control_configure(DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE),
+					(clock_control_subsys_t) &pclken[1],
+					NULL);
+	} else {
+		r = -127;
+	}
+
+	if(!(r == 0))
+        LOG_ERR("Could not enable SDMMC domain clock");
+	else 
+    {
+        LOG_INF("SDMMC domain clock configured");
+        LOG_INF(" ");
+    }
+
+
+
+
+
+	/* Test clock source */
+	dev_actual_clk_src = __HAL_RCC_GET_SDIO_SOURCE();
+
+	if (pclken[1].bus == STM32_SRC_CK48)
+    {
+        LOG_INF("STM32_SRC_CK48");
+		if(!(dev_actual_clk_src == RCC_SDIOCLKSOURCE_CLK48))
+            LOG_ERR("Expected SDMMC src: CLK 48 (0x%x). Actual src: 0x%x", RCC_SDIOCLKSOURCE_CLK48, dev_actual_clk_src);
+        else
+            LOG_INF("SDMMC clock is RCC_SDIOCLKSOURCE_CLK48");
+	}
+    else if (pclken[1].bus == STM32_SRC_SYSCLK)
+    {
+        LOG_INF("STM32_SRC_SYSCLK\n");
+		if(!(dev_actual_clk_src == RCC_SDIOCLKSOURCE_SYSCLK))
+            LOG_ERR("Expected SDMMC src: SYSCLK (0x%x). Actual src: 0x%x", RCC_SDIOCLKSOURCE_SYSCLK, dev_actual_clk_src);
+        else
+            LOG_INF("SDMMC clock is RCC_SDIOCLKSOURCE_SYSCLK");
+	}
+    else
+    {
+		LOG_ERR("Unexpected domain clk (0x%x)", dev_actual_clk_src);
+	}
+
+	/* Test get_rate(srce clk) */
+	if (pclken[1].bus == STM32_SRC_CK48) {
+		/* Get the CK48M source : PLL Q or PLLI2S Q */
+		if (LL_RCC_GetCK48MClockSource(LL_RCC_CK48M_CLKSOURCE) ==
+				LL_RCC_CK48M_CLKSOURCE_PLL) {
+			/* Get the PLL Q freq. No HAL macro for that */
+			dev_actual_clk_freq = __LL_RCC_CALC_PLLCLK_48M_FREQ(HSE_VALUE,
+							    LL_RCC_PLL_GetDivider(),
+							    LL_RCC_PLL_GetN(),
+							    LL_RCC_PLL_GetQ()
+							    );
+			LOG_INF("SDMMC sourced by PLLQ at %d Hz", dev_actual_clk_freq);
+		} else {
+			/* Get the I2S PLL Q freq. No HAL macro for that */
+			dev_actual_clk_freq = __LL_RCC_CALC_PLLI2S_48M_FREQ(HSE_VALUE,
+							    LL_RCC_PLLI2S_GetDivider(),
+							    LL_RCC_PLLI2S_GetN(),
+							    LL_RCC_PLLI2S_GetQ()
+							    );
+			LOG_INF("SDMMC sourced by PLLI2SQ at %d Hz", dev_actual_clk_freq);
+		}
+
+        print_val = LL_RCC_PLL_GetDivider();
+		LOG_INF("Divider: %d", print_val);
+        print_val = LL_RCC_PLL_GetN();
+		LOG_INF("N: %d", print_val);
+        print_val = LL_RCC_PLL_GetQ();
+		LOG_INF("Q: %d", print_val);
+		r = 0;
+
+	}
+    else if (pclken[1].bus == STM32_SRC_SYSCLK)
+    {
+		dev_actual_clk_freq = HAL_RCC_GetSysClockFreq();
+		LOG_INF(" STM32_SRC_SYSCLK at %d\n", dev_actual_clk_freq);
+	}
+    else
+    {
+		r = -127;
+	}
+
+	if(!(r == 0))
+        LOG_INF("Could not get SDMMC clk srce freq");
+    else
+        LOG_INF("Got SDMMC clk srce freq");
+
+
+	r = clock_control_get_rate(DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE),
+				(clock_control_subsys_t) &pclken[1],
+				&dev_dt_clk_freq);
+
+	if(!(dev_dt_clk_freq == dev_actual_clk_freq))
+        LOG_INF("Expected freq: %d Hz. Actual clk: %d Hz", dev_dt_clk_freq, dev_actual_clk_freq);
+
+	LOG_INF("SDMMC clock rate: %d Hz\n", dev_dt_clk_freq);
+
+	/* Test clock_off(gating clk) */
+    /*
+	r = clock_control_off(DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE),
+				(clock_control_subsys_t) &pclken[0]);
+	if(!(r == 0))
+        LOG_ERR("Could not disable SDMMC gating clk");
+
+	if(__HAL_RCC_SDIO_IS_CLK_ENABLED())
+        LOG_ERR("SDMMC gating clk should be off");
+
+	LOG_INF("SDMMC gating clk off\n");
+*/
+
+
+
+	if(__HAL_RCC_SDIO_IS_CLK_ENABLED())
+        LOG_INF("SDMMC CLK is enabled");
+    else
+    {
+        LOG_ERR("SDMMC CLK is not enabled");
+        LOG_ERR("");
+    }
+
+
 
     // Initialize the storage module which is responsible for storing
     // experiment data.

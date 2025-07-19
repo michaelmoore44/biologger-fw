@@ -70,10 +70,26 @@
 	status = "okay";
 };
 
+&clk48 {
+	/* select one source for the clk48MHz domain clock */
+/*	clocks = <&rcc STM32_SRC_PLL_Q CK48M_SEL(0)>;   */
+	clocks = <&rcc STM32_SRC_PLLI2S_Q CK48M_SEL(1)>;
+	status = "okay";
+};
+
 &clk_lse {
     /delete-property/ lse-bypass;
     clock-frequency = <32768>; // External 32.768kHz clock.
     status = "okay";
+};
+
+&plli2s {
+	div-m = <25>;
+	mul-n = <384>;
+	div-q = <8>;
+	div-r = <2>;
+	clocks = <&clk_hse>;
+	status = "okay";
 };
 
 &pll {
@@ -139,8 +155,14 @@
 };
 
 &sdmmc1 {
+	clocks = <&rcc STM32_CLOCK(APB2, 11U)>,
+	/* select one source for the sdmmc domain clock */
+		 <&rcc STM32_SRC_SYSCLK SDIO_SEL(1)>; 
+	/*	 <&rcc STM32_SRC_CK48 SDIO_SEL(0)>;    */
     pinctrl-0 = <&sdio_d0_pc8 &sdio_ck_pc12 &sdio_cmd_pd2>;
     pinctrl-names = "default";
+    disk-name = "SD";
+    clk-div = <24>;
     status = "okay";
 };
 
