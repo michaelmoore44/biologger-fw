@@ -1,0 +1,12 @@
+
+device STM32F412RG
+si SWD
+speed 4000
+h
+r
+loadbin ./build/zephyr/zephyr.bin 0x08000000
+verifybin ./build/zephyr/zephyr.bin 0x08000000
+r
+go
+q
+

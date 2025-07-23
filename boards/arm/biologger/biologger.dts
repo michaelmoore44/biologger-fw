@@ -141,6 +141,7 @@
 &sdmmc1 {
     pinctrl-0 = <&sdio_d0_pc8 &sdio_ck_pc12 &sdio_cmd_pd2>;
     pinctrl-names = "default";
+    disk-name = "SD";
     clk-div = <8>;
     status = "okay";
 };
